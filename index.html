@@ -179,6 +179,7 @@
   .gate-card p{font-size:12.5px;color:var(--muted);margin:0 0 20px;line-height:1.5}
   .gate-card input{width:100%;border:1px solid #cdd8e6;border-radius:10px;padding:12px 14px;font-size:15px;outline:none;text-align:center;letter-spacing:1px}
   .gate-card input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(15,76,146,.12)}
+  .gate-card input+input{margin-top:10px}
   .gate-card button{width:100%;margin-top:12px;border:0;background:var(--blue);color:#fff;padding:12px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:.15s}
   .gate-card button:hover{background:var(--blue-2)}
   .gate-err{color:#b23b2e;font-size:12.5px;margin-top:11px;min-height:16px}
@@ -196,26 +197,28 @@
   <div class="gate-card">
     <div class="glogo" id="gateLogo"></div>
     <h1>Whitman ISS Hotline</h1>
-    <p>Internal access only.<br>Please enter your access code.</p>
-    <input id="gateInput" type="password" inputmode="text" placeholder="Access code" autocomplete="off" autofocus>
-    <button id="gateBtn">Enter</button>
+    <p>Internal access only.<br>Please sign in to continue.</p>
+    <input id="gateUser" type="text" placeholder="User ID" autocomplete="off" autocapitalize="characters" autofocus>
+    <input id="gateInput" type="password" placeholder="Password" autocomplete="off">
+    <button id="gateBtn">Sign in</button>
     <div class="gate-err" id="gateErr"></div>
   </div>
 </div>
 <script>
 (function(){
-  var GATE_HASH="8df12783443ad1b72ec0a4daf05b12137e3452236553591534b291db16d478b4";
+  var GATE_HASH="aba086c396a6781245b113cf0fd52754284d29416c10f33ae34c51ec1193e204";
   var gate=document.getElementById('gate');
   if(sessionStorage.getItem('iss_ok')==='1'){ gate.classList.add('hidden'); }
   async function sha256(t){var b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,'0');}).join('');}
   async function tryEnter(){
-    var inp=document.getElementById('gateInput'), err=document.getElementById('gateErr');
-    if(!inp.value){return;}
-    var h=await sha256(inp.value);
+    var uid=document.getElementById('gateUser'), inp=document.getElementById('gateInput'), err=document.getElementById('gateErr');
+    if(!uid.value||!inp.value){ err.textContent='Please enter your User ID and password.'; return; }
+    var h=await sha256(uid.value.trim().toUpperCase()+':'+inp.value);
     if(h===GATE_HASH){ sessionStorage.setItem('iss_ok','1'); gate.classList.add('hidden'); }
-    else { err.textContent='Incorrect code. Please try again.'; inp.select(); }
+    else { err.textContent='Incorrect User ID or password.'; inp.select(); }
   }
   document.getElementById('gateBtn').addEventListener('click',tryEnter);
+  document.getElementById('gateUser').addEventListener('keydown',function(e){ if(e.key==='Enter') document.getElementById('gateInput').focus(); });
   document.getElementById('gateInput').addEventListener('keydown',function(e){ if(e.key==='Enter') tryEnter(); });
 })();
 </script>
