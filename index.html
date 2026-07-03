@@ -269,7 +269,7 @@
   <div class="scroll" id="scroll">
     <div class="inner">
       <div class="note"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V5l7-3z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Answers are drawn <b>&nbsp;only&nbsp;</b> from Whitman's knowledge base, with citations. Nothing is invented.</div>
+        Answers are drawn <b>&nbsp;only&nbsp;</b> from Whitman's knowledge base. Nothing is invented.</div>
       <div id="heroSlot"></div>
       <div id="thread"></div>
     </div>
@@ -706,19 +706,20 @@ function renderAnswer(res){
       inner=`<div class="answer notfound">I couldn't find that document. 🤔 Try the exact name, or ask <b>"what documents are available?"</b></div>`;
     }
   }else if(res.kind==="answer"){
+    const admin=document.body.classList.contains("admin");   // advisors: clean answer only
     const base=citeSeq;citeSeq+=res.hits.length;let body="";
     if(res.overview){
-      body=`<div class="answer">${esc(res.text)} ${res.hits.map((h,i)=>citeLink(base+i+1)).join("")}</div>`;
+      body=`<div class="answer">${esc(res.text)}${admin?" "+res.hits.map((h,i)=>citeLink(base+i+1)).join(""):""}</div>`;
     }else{
       const lead=res.guard?"":`<div class="lead">Here's what I found 👇</div>`;
-      body=`<div class="answer">${lead}`+res.segments.map(seg=>`${esc(seg.text)} ${citeLink(base+seg.n)}`).join("<br><br>")+`</div>`;
+      body=`<div class="answer">${lead}`+res.segments.map(seg=>`${esc(seg.text)}${admin?" "+citeLink(base+seg.n):""}`).join("<br><br>")+`</div>`;
     }
     const cards=res.hits.map((h,i)=>{
       const src=state.sources.find(x=>x.id===h.sourceId);
       const dl=src&&src.fileData?`<br><a class="pg-dl" href="${src.fileData}" download="${esc(h.sourceName)}">⬇ Download document</a>`:"";
       return `<details class="cc" id="cite-${base+i+1}"><summary><span class="num">${base+i+1}</span><span class="badge ${badgeClass(h.type)} bdg">${badgeLabel(h.type)}</span>${esc(h.sourceName)}<span class="arw"><svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="pg">${esc(laymanClean(h.passage))}${dl}</div></details>`;
     }).join("");
-    inner=`${res.guard?guardHtml():""}${body}<div class="used"><div class="used-h">Sources used</div>${cards}</div>`;
+    inner=admin?`${res.guard?guardHtml():""}${body}<div class="used"><div class="used-h">Sources used</div>${cards}</div>`:`${res.guard?guardHtml():""}${body}`;
   }
   d.innerHTML=`${botAv}<div class="bubble">${inner}</div>`;
   threadEl().appendChild(d);
