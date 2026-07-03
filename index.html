@@ -645,8 +645,8 @@ function renderSources(){
       </div>`}`;
     list.appendChild(card);
   });
-  list.querySelectorAll("[data-toggle]").forEach(el=>el.addEventListener("change",e=>{const s=state.sources.find(x=>x.id==e.target.dataset.toggle);s.included=e.target.checked;renderSources();renderHero();}));
-  list.querySelectorAll("[data-remove]").forEach(el=>el.addEventListener("click",e=>{const id=e.currentTarget.dataset.remove;state.sources=state.sources.filter(x=>x.id!=id);renderSources();renderHero();toast("Source removed");}));
+  list.querySelectorAll("[data-toggle]").forEach(el=>el.addEventListener("change",e=>{const s=state.sources.find(x=>x.id==e.target.dataset.toggle);s.included=e.target.checked;renderSources();renderHero();saveKB();}));
+  list.querySelectorAll("[data-remove]").forEach(el=>el.addEventListener("click",e=>{const id=e.currentTarget.dataset.remove;state.sources=state.sources.filter(x=>x.id!=id);renderSources();renderHero();saveKB();toast("Source removed");}));
 }
 
 function renderHero(){
@@ -748,7 +748,7 @@ async function handleFiles(fileList){
       src.fileData=await fileToDataURL(file);   // keep original so advisors can download it
       toast(`Added "${file.name}" — ${src.passages.length} passages`);
     }catch(err){src.error=err.message||"Could not read file";src.included=false;toast(err.message||"Failed to read file",true);}
-    renderSources();renderHero();
+    renderSources();renderHero();saveKB();
   }
   $("#fileInput").value="";
 }
@@ -769,9 +769,33 @@ async function importNotebook(file){
     if(data._format!=="whitman-iss-kb"&&data._format!=="source-desk-notebook"){if(!confirm("This doesn't look like a Whitman ISS knowledge base. Import anyway?"))return;}
     state.title=data.title||"Whitman ISS Hotline";state.logo=data.logo||null;
     state.sources=(data.sources||[]).map(s=>({id:idSeq++,name:s.name||"Untitled",type:s.type||"txt",ext:s.ext||"",passages:Array.isArray(s.passages)?s.passages:[],included:s.included!==false,error:s.error||null,fileData:s.fileData||null,mime:s.mime||""}));
-    applyBranding();renderSources();renderHero();
+    applyBranding();renderSources();renderHero();saveKB();
     toast(`Imported — ${state.sources.length} sources`);
   }catch(e){toast("Could not import: invalid JSON",true);}
+}
+
+/* ============================================================================ PERSISTENCE
+   The knowledge base is saved in this browser (localStorage) so admin uploads
+   persist across reloads/logout and are available to the Advisor login on the
+   same device. (Cross-device sharing needs the server backend / a re-published
+   embedded KB — see notes.) */
+const KB_KEY="iss_kb_v1";
+function saveKB(){
+  try{
+    const data={title:state.title,logo:state.logo,
+      sources:state.sources.map(s=>({name:s.name,type:s.type,ext:s.ext,passages:s.passages,included:s.included,error:s.error,fileData:s.fileData||null,mime:s.mime||""}))};
+    localStorage.setItem(KB_KEY,JSON.stringify(data));
+  }catch(e){ toast("Couldn't save locally — storage full. Export the knowledge base to keep a copy.",true); }
+}
+function loadKB(){
+  try{
+    const raw=localStorage.getItem(KB_KEY); if(!raw)return false;
+    const data=JSON.parse(raw);
+    if(data.title)state.title=data.title;
+    if(data.logo)state.logo=data.logo;
+    state.sources=(data.sources||[]).map(s=>({id:idSeq++,name:s.name||"Untitled",type:s.type||"txt",ext:s.ext||"",passages:Array.isArray(s.passages)?s.passages:[],included:s.included!==false,error:s.error||null,fileData:s.fileData||null,mime:s.mime||""}));
+    return true;
+  }catch(e){return false;}
 }
 
 /* ============================================================================ BRANDING */
@@ -835,16 +859,16 @@ function init(){
 
   // branding
   const ti=$("#titleInput");
-  ti.addEventListener("input",()=>{state.title=ti.value.trim()||"Whitman ISS Hotline";$("#brandTitle").textContent=state.title;document.title=state.title;});
+  ti.addEventListener("input",()=>{state.title=ti.value.trim()||"Whitman ISS Hotline";$("#brandTitle").textContent=state.title;document.title=state.title;saveKB();});
   $("#logoSlot").addEventListener("click",()=>$("#logoInput").click());
-  $("#logoInput").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{state.logo=r.result;applyBranding();toast("Logo updated");};r.readAsDataURL(f);});
+  $("#logoInput").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{state.logo=r.result;applyBranding();saveKB();toast("Logo updated");};r.readAsDataURL(f);});
 
   // export/import
   $("#exportBtn").addEventListener("click",exportNotebook);
   $("#importBtn").addEventListener("click",()=>$("#importInput").click());
   $("#importInput").addEventListener("change",e=>{if(e.target.files[0])importNotebook(e.target.files[0]);e.target.value="";});
 
-  applyBranding();renderSources();renderHero();
+  loadKB();applyBranding();renderSources();renderHero();
 }
 init();
 </script>
