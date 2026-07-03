@@ -346,6 +346,10 @@ const $=s=>document.querySelector(s);
 
 /* Multi-device sync backend (Cloudflare Worker URL). Empty = local-only. */
 const BACKEND_URL="";
+/* Baked-in knowledge base — set when publishing a prepared KB so every device
+   loads it automatically. EMBED_VER is bumped on each publish to push updates. */
+const EMBED_KB=null;
+const EMBED_VER=0;
 
 /* ---------- CDN loader ---------- */
 const CDN={
@@ -806,6 +810,15 @@ function loadKB(){
     return hydrate(JSON.parse(raw));
   }catch(e){return false;}
 }
+// On startup: load local cache, then apply the baked-in KB if it's newer.
+function bootKB(){
+  const storedVer=parseInt(localStorage.getItem("iss_kb_ver")||"0",10);
+  loadKB();
+  if(EMBED_KB && EMBED_VER>storedVer){
+    hydrate(EMBED_KB);
+    try{ localStorage.setItem(KB_KEY,JSON.stringify(kbPayload())); localStorage.setItem("iss_kb_ver",String(EMBED_VER)); }catch(e){}
+  }
+}
 /* ---- remote sync (Cloudflare Worker) ---- */
 async function loadKBRemote(){
   if(!BACKEND_URL) return false;
@@ -908,7 +921,7 @@ function init(){
   $("#importBtn").addEventListener("click",()=>$("#importInput").click());
   $("#importInput").addEventListener("change",e=>{if(e.target.files[0])importNotebook(e.target.files[0]);e.target.value="";});
 
-  loadKB();applyBranding();renderSources();renderHero();
+  bootKB();applyBranding();renderSources();renderHero();
   loadKBRemote();   // pull the shared knowledge base (if a backend is configured)
 }
 init();
