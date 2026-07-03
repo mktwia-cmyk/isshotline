@@ -44,6 +44,7 @@
   .kb-btn{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:#fff;padding:9px 15px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;gap:8px;align-items:center;transition:.15s}
   .kb-btn:hover{background:rgba(255,255,255,.2)}
   .kb-btn svg{width:16px;height:16px}
+  body:not(.admin) #kbBtn{display:none}   /* advisors: ask only, no source management */
 
   /* ---------------- Chat (full width) ---------------- */
   .chat{display:flex;flex-direction:column;height:calc(100vh - 66px)}
@@ -206,15 +207,20 @@
 </div>
 <script>
 (function(){
-  var GATE_HASH="aba086c396a6781245b113cf0fd52754284d29416c10f33ae34c51ec1193e204";
+  // hash(userid_upper + ":" + password) -> role
+  var USERS={
+    "aba086c396a6781245b113cf0fd52754284d29416c10f33ae34c51ec1193e204":"advisor", // WIA
+    "4db12a7f63b4f4c4e96463107f9de5fa17056ff99a30c67fbff6605962a6dd39":"admin"     // ISS
+  };
   var gate=document.getElementById('gate');
-  if(sessionStorage.getItem('iss_ok')==='1'){ gate.classList.add('hidden'); }
+  function applyRole(role){ document.body.classList.toggle('admin', role==='admin'); if(window.renderHero)renderHero(); if(window.renderSources)renderSources(); }
+  if(sessionStorage.getItem('iss_ok')==='1'){ applyRole(sessionStorage.getItem('iss_role')); gate.classList.add('hidden'); }
   async function sha256(t){var b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,'0');}).join('');}
   async function tryEnter(){
     var uid=document.getElementById('gateUser'), inp=document.getElementById('gateInput'), err=document.getElementById('gateErr');
     if(!uid.value||!inp.value){ err.textContent='Please enter your User ID and password.'; return; }
-    var h=await sha256(uid.value.trim().toUpperCase()+':'+inp.value);
-    if(h===GATE_HASH){ sessionStorage.setItem('iss_ok','1'); gate.classList.add('hidden'); }
+    var role=USERS[await sha256(uid.value.trim().toUpperCase()+':'+inp.value)];
+    if(role){ sessionStorage.setItem('iss_ok','1'); sessionStorage.setItem('iss_role',role); applyRole(role); gate.classList.add('hidden'); }
     else { err.textContent='Incorrect User ID or password.'; inp.select(); }
   }
   document.getElementById('gateBtn').addEventListener('click',tryEnter);
@@ -605,7 +611,8 @@ function renderSources(){
 function renderHero(){
   const slot=$("#heroSlot"),ov=computeOverview();
   if(!ov){
-    slot.innerHTML=`<div class="hero"><h3>👋 Welcome to Whitman ISS Hotline</h3><p>The knowledge base is being prepared. Once documents are added, you'll get an overview here and can ask questions answered strictly from Whitman's sources — every answer cited. Use the <b>Knowledge base</b> button (top right) to add documents.</p></div>`;
+    const adminTip=document.body.classList.contains("admin")?" Use the <b>Knowledge base</b> button (top right) to add documents.":"";
+    slot.innerHTML=`<div class="hero"><h3>👋 Welcome to Whitman ISS Hotline</h3><p>The knowledge base is being prepared. Once documents are added, you'll get an overview here and can ask questions answered strictly from Whitman's sources — every answer cited.${adminTip}</p></div>`;
     return;
   }
   const chips=ov.suggestions.map(q=>`<button class="chip" data-ask="${esc(q)}">${esc(q)}</button>`).join("");
@@ -634,7 +641,9 @@ let citeSeq=0;
 function renderAnswer(res){
   const d=document.createElement("div");d.className="msg bot";let inner="";
   if(res.kind==="empty"){
-    inner=`<div class="answer notfound">No documents yet! 📄 Add some via the <b>Knowledge base</b> button and I'll help.</div>`;
+    inner=document.body.classList.contains("admin")
+      ? `<div class="answer notfound">No documents yet! 📄 Add some via the <b>Knowledge base</b> button and I'll help.</div>`
+      : `<div class="answer notfound">The knowledge base is being prepared by the Whitman team. 📄 Please check back soon.</div>`;
   }else if(res.kind==="greeting"){
     inner=`<div class="answer">Hi there! 👋 Ask me anything about Whitman's documents — I'll keep it short and cite my sources.</div>`;
   }else if(res.kind==="notfound"){
