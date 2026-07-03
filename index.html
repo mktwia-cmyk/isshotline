@@ -92,6 +92,12 @@
   .cc .pg{padding:0 13px 13px 43px;font-size:13px;color:#3a4650;line-height:1.6;white-space:pre-wrap}
   .cc.flash{animation:fl 1.3s}
   @keyframes fl{0%{background:var(--sky-2)}100%{background:#fbfdff}}
+  .doc-dl{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;background:#fbfdff;padding:11px 13px;margin-bottom:8px;text-decoration:none;color:var(--ink);transition:.15s}
+  .doc-dl:hover{border-color:var(--blue);background:var(--sky)}
+  .doc-dl .doc-name{flex:1;font-size:13.5px;font-weight:600;word-break:break-word}
+  .doc-dl .doc-ic{color:var(--blue);font-size:17px;font-weight:700;flex:0 0 auto}
+  .pg-dl{display:inline-flex;align-items:center;gap:5px;margin-top:10px;color:var(--blue);font-weight:600;font-size:12.5px;text-decoration:none}
+  .pg-dl:hover{text-decoration:underline}
 
   .typing{display:inline-flex;gap:5px;padding:5px 2px}
   .typing span{width:7px;height:7px;border-radius:50%;background:var(--faint);animation:bl 1.3s infinite}
@@ -251,6 +257,10 @@
   <button class="kb-btn" id="kbBtn" title="Manage the knowledge base">
     <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h9l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.8"/><path d="M14 4v6h6" stroke="currentColor" stroke-width="1.8"/></svg>
     <span class="lbl">Knowledge base</span>
+  </button>
+  <button class="kb-btn logout" id="logoutBtn" title="Log out">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M15 12H4m0 0l4-4m-4 4l4 4M14 4h5a1 1 0 011 1v14a1 1 0 01-1 1h-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="lbl">Log out</span>
   </button>
 </header>
 
@@ -553,15 +563,46 @@ function computeOverview(){
   const terms=[];for(const t of salient){if(t.length>3)terms.push(t);if(terms.length>=4)break;}
   const suggestions=terms.map(t=>`What do the sources say about ${t}?`);
   suggestions.push("Give me an overview of the knowledge base.");
-  suggestions.push("What are the key points?");
+  suggestions.push("What documents are available?");
   return {summary:summary.join(" "),suggestions,count:active.length};
 }
 
 /* ============================================================================ ANSWERING */
+/* ---------- Document requests (advisor asks for a file, gets it to download) ---------- */
+const DOC_REQ_VERB=/\b(send|share|download|give|get|grab|provide|email|attach|forward|need|want|request|show|find|fetch|pull|obtain|receive)\b/i;
+const DOC_NOUN=/\b(document|documents|doc|docs|file|files|form|forms|pdf|report|reports|brochure|policy|policies|guide|guides|handbook|statement|copy|attachment|slide|slides|deck|sheet|template|factsheet|fact sheet)\b/i;
+const DOC_LIST_NOUN=/\b(documents|docs|files|forms)\b/i;  // generic/plural only — for listing intent
+function isDocRequest(q){
+  if(DOC_REQ_VERB.test(q)&&DOC_NOUN.test(q))return true;                       // "send me the fee form"
+  if(DOC_LIST_NOUN.test(q)&&/\b(available|list|which|what|any|have|there|see|show)\b/i.test(q))return true; // "what documents are available?"
+  return false;
+}
+function findDocs(query){
+  const active=state.sources.filter(s=>s.included&&!s.error&&s.fileData);
+  if(!active.length)return {docs:[],reason:"none"};
+  const qToks=tokenSet(query);
+  // 1) match by filename
+  const named=active.map(s=>{
+    const nameToks=tokenSet(s.name.replace(/\.[a-z0-9]+$/i,""));
+    let m=0;qToks.forEach(t=>{if(nameToks.has(t))m++;});
+    return {s,m};
+  }).filter(x=>x.m>0).sort((a,b)=>b.m-a.m);
+  if(named.length)return {docs:named.map(x=>x.s),reason:"match"};
+  // 2) "all / available / list documents" style
+  if(/\b(all|list|available|every|any|which|what)\b/i.test(query))return {docs:active,reason:"all"};
+  // 3) match by content
+  const idx=buildIndex();const hits=retrieve(query,idx,{minTerms:1,k:3});
+  const ids=[...new Set(hits.map(h=>h.sourceId))];
+  const byContent=ids.map(id=>active.find(s=>s.id===id)).filter(Boolean);
+  if(byContent.length)return {docs:byContent,reason:"content"};
+  return {docs:[],reason:"nomatch"};
+}
+
 function answerQuestion(query){
   const active=state.sources.filter(s=>s.included&&!s.error);
   if(!active.length)return {kind:"empty"};
   if(isGreeting(query))return {kind:"greeting"};
+  if(isDocRequest(query)){const r=findDocs(query);return {kind:"docs",docs:r.docs,reason:r.reason};}
   if(/\b(overview|summar(y|ise|ize)|what.*(these|the) (docs|documents|sources)|key points|main points|tell me about (these|the)|knowledge base)\b/i.test(query)){
     const ov=computeOverview();
     if(ov&&ov.summary){const idx=buildIndex();const hits=retrieve(query,idx,{minTerms:1,k:3});return {kind:"answer",guard:false,overview:true,text:ov.summary,hits};}
@@ -648,6 +689,15 @@ function renderAnswer(res){
     inner=`<div class="answer">Hi there! 👋 Ask me anything about Whitman's documents — I'll keep it short and cite my sources.</div>`;
   }else if(res.kind==="notfound"){
     inner=`${res.guard?guardHtml():""}<div class="answer notfound">Hmm, I couldn't find that in the sources. 🤔 Try rephrasing, or add a document that covers it.</div>`;
+  }else if(res.kind==="docs"){
+    if(res.docs.length){
+      const intro=res.reason==="all"?"Here are the available documents 👇":"Here you go 👇 Click to download:";
+      inner=`<div class="answer"><div class="lead">${intro}</div></div><div class="used">${res.docs.map(docCard).join("")}</div>`;
+    }else if(res.reason==="none"){
+      inner=`<div class="answer notfound">There aren't any downloadable documents in the knowledge base yet. 📄</div>`;
+    }else{
+      inner=`<div class="answer notfound">I couldn't find that document. 🤔 Try the exact name, or ask <b>"what documents are available?"</b></div>`;
+    }
   }else if(res.kind==="answer"){
     const base=citeSeq;citeSeq+=res.hits.length;let body="";
     if(res.overview){
@@ -656,7 +706,11 @@ function renderAnswer(res){
       const lead=res.guard?"":`<div class="lead">Here's what I found 👇</div>`;
       body=`<div class="answer">${lead}`+res.segments.map(seg=>`${esc(seg.text)} ${citeLink(base+seg.n)}`).join("<br><br>")+`</div>`;
     }
-    const cards=res.hits.map((h,i)=>`<details class="cc" id="cite-${base+i+1}"><summary><span class="num">${base+i+1}</span><span class="badge ${badgeClass(h.type)} bdg">${badgeLabel(h.type)}</span>${esc(h.sourceName)}<span class="arw"><svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="pg">${esc(laymanClean(h.passage))}</div></details>`).join("");
+    const cards=res.hits.map((h,i)=>{
+      const src=state.sources.find(x=>x.id===h.sourceId);
+      const dl=src&&src.fileData?`<br><a class="pg-dl" href="${src.fileData}" download="${esc(h.sourceName)}">⬇ Download document</a>`:"";
+      return `<details class="cc" id="cite-${base+i+1}"><summary><span class="num">${base+i+1}</span><span class="badge ${badgeClass(h.type)} bdg">${badgeLabel(h.type)}</span>${esc(h.sourceName)}<span class="arw"><svg viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="pg">${esc(laymanClean(h.passage))}${dl}</div></details>`;
+    }).join("");
     inner=`${res.guard?guardHtml():""}${body}<div class="used"><div class="used-h">Sources used</div>${cards}</div>`;
   }
   d.innerHTML=`${botAv}<div class="bubble">${inner}</div>`;
@@ -665,6 +719,7 @@ function renderAnswer(res){
   scrollDown();
 }
 const citeLink=n=>`<a class="cite" href="#" data-target="cite-${n}">${n}</a>`;
+const docCard=s=>`<a class="doc-dl" href="${s.fileData}" download="${esc(s.name)}"><span class="badge ${badgeClass(s.type)} bdg">${badgeLabel(s.type)}</span><span class="doc-name">${esc(s.name)}</span><span class="doc-ic">⬇</span></a>`;
 const guardHtml=()=>`<div class="guard"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z" stroke="currentColor" stroke-width="1.6"/></svg><span>For advice specific to a client's situation, refer them to a licensed advisor. Here's what the sources say:</span></div>`;
 
 /* ---------- Ask flow ---------- */
@@ -684,23 +739,25 @@ function submitQuestion(){
 /* ============================================================================ UPLOAD */
 async function handleFiles(fileList){
   for(const file of [...fileList]){
-    const src={id:idSeq++,name:file.name,type:"txt",ext:"",passages:[],included:true,error:null};
+    const src={id:idSeq++,name:file.name,type:"txt",ext:"",passages:[],included:true,error:null,fileData:null,mime:file.type||""};
     state.sources.push(src);renderSources();
     toast(`Reading "${file.name}"…`,false,true);
     try{
       const {text,type,ext}=await parseFile(file);
       src.type=type;src.ext=ext;src.passages=splitPassages(text);
+      src.fileData=await fileToDataURL(file);   // keep original so advisors can download it
       toast(`Added "${file.name}" — ${src.passages.length} passages`);
     }catch(err){src.error=err.message||"Could not read file";src.included=false;toast(err.message||"Failed to read file",true);}
     renderSources();renderHero();
   }
   $("#fileInput").value="";
 }
+function fileToDataURL(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file);});}
 
 /* ============================================================================ EXPORT / IMPORT */
 function exportNotebook(){
   const data={_format:"whitman-iss-kb",version:1,title:state.title,logo:state.logo,
-    sources:state.sources.map(s=>({name:s.name,type:s.type,ext:s.ext,passages:s.passages,included:s.included,error:s.error}))};
+    sources:state.sources.map(s=>({name:s.name,type:s.type,ext:s.ext,passages:s.passages,included:s.included,error:s.error,fileData:s.fileData||null,mime:s.mime||""}))};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);
   a.download=(state.title||"whitman-iss").replace(/[^\w.-]+/g,"_")+".kb.json";
@@ -711,7 +768,7 @@ async function importNotebook(file){
     const data=JSON.parse(await file.text());
     if(data._format!=="whitman-iss-kb"&&data._format!=="source-desk-notebook"){if(!confirm("This doesn't look like a Whitman ISS knowledge base. Import anyway?"))return;}
     state.title=data.title||"Whitman ISS Hotline";state.logo=data.logo||null;
-    state.sources=(data.sources||[]).map(s=>({id:idSeq++,name:s.name||"Untitled",type:s.type||"txt",ext:s.ext||"",passages:Array.isArray(s.passages)?s.passages:[],included:s.included!==false,error:s.error||null}));
+    state.sources=(data.sources||[]).map(s=>({id:idSeq++,name:s.name||"Untitled",type:s.type||"txt",ext:s.ext||"",passages:Array.isArray(s.passages)?s.passages:[],included:s.included!==false,error:s.error||null,fileData:s.fileData||null,mime:s.mime||""}));
     applyBranding();renderSources();renderHero();
     toast(`Imported — ${state.sources.length} sources`);
   }catch(e){toast("Could not import: invalid JSON",true);}
@@ -766,6 +823,9 @@ function init(){
   inp.addEventListener("input",()=>{inp.style.height="auto";inp.style.height=Math.min(inp.scrollHeight,130)+"px";});
   inp.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submitQuestion();}});
   $("#sendBtn").addEventListener("click",submitQuestion);
+
+  // logout
+  $("#logoutBtn").addEventListener("click",()=>{ sessionStorage.removeItem("iss_ok"); sessionStorage.removeItem("iss_role"); location.reload(); });
 
   // modal
   $("#kbBtn").addEventListener("click",openModal);
